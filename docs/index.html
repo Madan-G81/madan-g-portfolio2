@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MADAN G — Terminal Portfolio</title>
+
+<style>
+  /* ============================================================
+     1. VARIABLES / PALETTE
+     ============================================================ */
+  :root {
+    --bg:        #070b0c;   /* page background */
+    --window:    #0c1214;   /* terminal window */
+    --window-2:  #0a0f11;
+    --bar:       #11191c;   /* title bar */
+    --fg:        #c8d6d2;   /* standard output */
+    --muted:     #5f7a76;   /* dim / comments */
+    --prompt:    #00ff9c;   /* green prompt + success */
+    --input:     #eaf4f0;   /* user-typed text */
+    --link:      #4dd0ff;   /* cyan links */
+    --dir:       #4dd0ff;   /* directory names */
+    --error:     #ff5f56;   /* red errors */
+    --border:    #1b272a;
+
+    --mono: "JetBrains Mono", "Fira Code", "IBM Plex Mono", ui-monospace,
+            SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  /* ============================================================
+     2. BASE / RESET
+     ============================================================ */
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 700px at 50% -10%, rgba(0,255,156,0.05), transparent 60%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 15px;
+    line-height: 1.65;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--link); }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  /* ============================================================
+     3. PAGE LAYOUT
+     ============================================================ */
+  .page { width: 100%; max-width: 920px; }
+
+  /* ============================================================
+     4. TERMINAL WINDOW CHROME
+     ============================================================ */
+  .terminal {
+    background: var(--window);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 30px 80px -30px rgba(0,0,0,0.9), 0 0 0 1px rgba(0,255,156,0.04);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 72vh;
+    max-height: 82vh;
+    position: relative;
+  }
+
+  /* Subtle CRT scanline / vignette (very subtle, decorative) */
+  .terminal::after {
+    content: "";
+    position: absolute; inset: 0;
+    pointer-events: none;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,0.12) 0, rgba(0,0,0,0.12) 1px, transparent 2px, transparent 3px);
+    opacity: 0.25;
+    mix-blend-mode: multiply;
+  }
+
+  /* Title bar */
+  .titlebar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--bar);
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    z-index: 2;
+  }
+  .lights { display: inline-flex; gap: 8px; }
+  .light { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .light.red    { background: #ff5f56; }
+  .light.yellow { background: #ffbd2e; }
+  .light.green  { background: #27c93f; }
+  .titlebar .title {
+    color: var(--muted);
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    flex: 1 1 auto;
+    text-align: center;
+    user-select: none;
+  }
+  .toggle-view {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    z-index: 3;
+  }
+  .toggle-view:hover,
+  .toggle-view:focus-visible { color: var(--prompt); border-color: var(--prompt); outline: none; }
+
+  /* ============================================================
+     5. OUTPUT SCROLLBACK
+     ============================================================ */
+  .terminal-body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .output {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 18px 18px 6px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .output::-webkit-scrollbar { width: 8px; }
+  .output::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+
+  .line { white-space: pre-wrap; word-break: break-word; }
+  .line--muted { color: var(--muted); }
+  .line--ok    { color: var(--prompt); }
+  .line--err   { color: var(--error); }
+  .line--dir   { color: var(--dir); font-weight: 700; }
+  .line--file  { color: var(--fg); }
+
+  .term-link {
+    color: var(--link);
+    text-decoration: none;
+    border-bottom: 1px dotted transparent;
+  }
+  .term-link:hover,
+  .term-link:focus-visible { border-bottom-color: var(--link); outline: none; }
+
+  /* ============================================================
+     6. INPUT LINE + CURSOR
+     ============================================================ */
+  .input-line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 18px 18px;
+    border-top: 1px solid transparent;
+  }
+  .prompt { color: var(--prompt); white-space: nowrap; user-select: none; }
+
+  .input-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: baseline;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .mirror {
+    color: var(--input);
+    white-space: pre;
+    min-height: 1.2em;
+  }
+  .cursor {
+    display: inline-block;
+    width: 0.62em;
+    height: 1.15em;
+    background: var(--prompt);
+    margin-left: 1px;
+    transform: translateY(2px);
+    animation: blink 1.05s steps(1) infinite;
+  }
+  @keyframes blink {
+    0%, 49%   { opacity: 1; }
+    50%, 100% { opacity: 0; }
+  }
+  .cmd-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: transparent;       /* visible text is the mirror */
+    caret-color: transparent; /* our block cursor stands in */
+    font: inherit;
+    padding: 0;
+    margin: 0;
+  }
+
+  /* ============================================================
+     7. STANDARD PAGE FALLBACK VIEW
+     ============================================================ */
+  .standard-view {
+    background: var(--window);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px clamp(20px, 4vw, 48px);
+    max-height: 82vh;
+    overflow-y: auto;
+    color: var(--fg);
+  }
+  .standard-view h1 { font-size: 30px; margin: 0 0 4px; color: #eaf4f0; }
+  .standard-view h2 { font-size: 18px; margin: 28px 0 10px; color: var(--prompt); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .standard-view p  { color: var(--fg); }
+  .standard-view .role { color: var(--muted); margin: 0 0 4px; }
+  .standard-view ul { padding-left: 20px; margin: 6px 0; }
+  .standard-view li { margin: 4px 0; }
+  .standard-view a  { color: var(--link); }
+  .standard-view .tag { color: var(--dir); }
+  .standard-view .back-btn {
+    margin-top: 28px;
+    background: transparent; border: 1px solid var(--border);
+    color: var(--prompt); font-family: var(--mono); font-size: 13px;
+    padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  }
+  .standard-view .back-btn:hover { border-color: var(--prompt); }
+
+  /* ============================================================
+     8. ANIMATIONS / REDUCED MOTION
+     ============================================================ */
+  @media (prefers-reduced-motion: reduce) {
+    .cursor { animation: none; }
+    .terminal::after { display: none; }
+  }
+
+  /* ============================================================
+     9. RESPONSIVE
+     ============================================================ */
+  @media (max-width: 480px) {
+    body { padding: 10px 8px; }
+    .terminal { min-height: 86vh; max-height: 92vh; font-size: 13.5px; }
+    .titlebar .title { font-size: 11px; }
+    .toggle-view { font-size: 11px; padding: 3px 7px; }
+  }
+</style>
+</head>
+
+<body>
+  <div class="page">
+    <!-- ===================== TERMINAL ===================== -->
+    <section class="terminal" id="terminal" aria-label="Interactive terminal portfolio">
+      <div class="titlebar">
+        <span class="lights" aria-hidden="true">
+          <i class="light red"></i><i class="light yellow"></i><i class="light green"></i>
+        </span>
+        <span class="title">guest@madan-portfolio: ~</span>
+        <button class="toggle-view" id="toggleView" type="button">[ standard view ]</button>
+      </div>
+
+      <div class="terminal-body" id="terminalBody">
+        <div class="output" id="output"></div>
+
+        <div class="input-line" id="inputLine">
+          <span class="prompt" id="promptLabel">guest@madan-portfolio:~$</span>
+          <span class="input-wrap">
+            <span class="mirror" id="mirror" aria-hidden="true"></span><span class="cursor" id="cursor" aria-hidden="true"></span>
+            <input class="cmd-input" id="cmdInput" type="text" aria-label="Terminal command input"
+                   autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+          </span>
+        </div>
+      </div>
+
+      <!-- Live region updated only after a command fully renders -->
+      <div class="sr-only" id="srAnnounce" aria-live="polite"></div>
+    </section>
+
+    <!-- ============== STANDARD (ACCESSIBLE) VIEW ============== -->
+    <article class="standard-view" id="standardView" hidden></article>
+  </div>
+
+<script>
+/* ================================================================
+   DATA — single source of truth (drives both terminal + fallback)
+   ================================================================ */
+const PROFILE = {
+  name: "MADAN G",
+  roles: "Backend Engineer / DevOps Engineer / Systems Programmer",
+  location: "Karnataka",
+  bio: "I'm MADAN G — a systems-minded engineer who lives where backend infrastructure meets low-level performance. " +
+       "I build distributed systems, automate everything I can, and believe the best tool is the one that gets out of your way. " +
+       "Currently crafting resilient platforms from Karnataka.",
+  email: "madan@madang.dev",
+  links: [
+    { label: "GitHub",   url: "https://github.com/madang" },
+    { label: "LinkedIn", url: "https://linkedin.com/in/madang" },
+    { label: "Blog",     url: "https://madang.dev" }
+  ],
+  resume: "https://madang.dev/resume.pdf",
+  skills: [
+    { group: "Languages",     items: "Go, Rust, Python, C++, TypeScript" },
+    { group: "Infra/Platform", items: "Kubernetes, Docker, Terraform, AWS, Linux" },
+    { group: "Data/Streaming", items: "PostgreSQL, Redis, Kafka, ClickHouse" },
+    { group: "Observability",  items: "Prometheus, Grafana, OpenTelemetry" }
+  ],
+  projects: [
+    {
+      file: "distributed-cache.md",
+      title: "distributed-cache",
+      desc: "A high-throughput cache that partitions keys via consistent hashing and replicates with a Raft-based consensus group for seamless failover.",
+      stack: "Go, Raft, Redis Protocol",
+      link: "https://github.com/madang/distributed-cache",
+      metric: "Sustains 1.2M ops/s at p99 3ms"
+    },
+    {
+      file: "k8s-autoscaler.md",
+      title: "k8s-autoscaler",
+      desc: "Predictive Kubernetes autoscaler using historical Prometheus signals and KEDA, right-sizing workloads before traffic arrives.",
+      stack: "Go, KEDA, Prometheus, Kubernetes",
+      link: "https://github.com/madang/k8s-autoscaler",
+      metric: "Cut cluster infra cost by 34%"
+    },
+    {
+      file: "edge-proxy.md",
+      title: "edge-proxy",
+      desc: "An io_uring-powered edge proxy that rewrites and forwards requests with zero user-space copies.",
+      stack: "Rust, io_uring, tokio",
+      link: "https://github.com/madang/edge-proxy",
+      metric: "p99 latency 0.8ms at 800k rps"
+    },
+    {
+      file: "log-pipeline.md",
+      title: "log-pipeline",
+      desc: "Streaming pipeline ingesting structured logs into a columnar store with sub-second query paths.",
+      stack: "Kafka, ClickHouse, Go",
+      link: "https://github.com/madang/log-pipeline",
+      metric: "Ingests 4M events/s"
+    },
+    {
+      file: "tf-modules.md",
+      title: "tf-modules",
+      desc: "Battle-tested Terraform modules for zero-downtime AWS networking and compute.",
+      stack: "Terraform, AWS",
+      link: "https://github.com/madang/tf-modules",
+      metric: "Adopted across 30+ repositories"
+    }
+  ],
+  experience: [
+    { role: "Senior Backend Engineer @ Nexus Labs", duration: "2022 – 2024",
+      impact: "Led the core rewrite, cutting p99 latency 40% and halving on-call pages." },
+    { role: "DevOps Engineer @ CloudForge", duration: "2020 – 2022",
+      impact: "Migrated 60+ services to Kubernetes with zero customer-facing downtime." },
+    { role: "Systems Programmer @ KernelWorks", duration: "2018 – 2020",
+      impact: "Built a userspace networking stack doubling throughput on commodity NICs." }
+  ]
+};
+
+const PROMPT = "guest@madan-portfolio:~$ ";
+
+/* ================================================================
+   ELEMENT REFERENCES
+   ================================================================ */
+const output     = document.getElementById("output");
+const input      = document.getElementById("cmdInput");
+const mirror     = document.getElementById("mirror");
+const srAnnounce = document.getElementById("srAnnounce");
+const terminal   = document.getElementById("terminal");
+const terminalBody = document.getElementById("terminalBody");
+const standardView = document.getElementById("standardView");
+const toggleViewBtn = document.getElementById("toggleView");
+
+const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+let history = [];
+let historyIndex = 0;
+let typing = false;          // true while a typewriter animation is running
+
+/* ================================================================
+   OUTPUT BUILDERS — safe DOM construction (no innerHTML for data)
+   ================================================================ */
+function buildLineNode(line) {
+  const div = document.createElement("div");
+  div.className = "line";
+  if (line.link) {
+    const a = document.createElement("a");
+    a.className = "term-link";
+    a.textContent = line.text;     // textContent = safe against injection
+    a.href = line.href;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    div.appendChild(a);
+    return div;
+  }
+  if (line.cls) div.classList.add("line--" + line.cls);
+  return div;                       // text is filled in by typeOutput/print
+}
+
+/* ================================================================
+   typeOutput() — reusable typewriter renderer
+   Builds content via safe text nodes (no innerHTML).
+   Honors prefers-reduced-motion (renders instantly).
+   Skip-to-complete is handled globally via the `typing` flag.
+   ================================================================ */
+function typeText(node, text, speed) {
+  return new Promise((resolve) => {
+    let i = 0;
+    function step() {
+      if (typing === false) { node.textContent = text; resolve(); return; }
+      node.textContent = text.slice(0, i);
+      if (i >= text.length) { resolve(); return; }
+      i++;
+      setTimeout(step, speed);
+    }
+    step();
+  });
+}
+
+/* Print an array of line objects; animates unless reduced motion. */
+async function printLines(lines) {
+  typing = true;
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
+    const el = buildLineNode(line);
+    output.appendChild(el);
+    scrollToBottom();
+
+    if (line.link) continue;                 // links rendered instantly
+
+    if (typing && !prefersReduced.matches) {
+      await typeText(el, line.text || "", line.speed || 5);
+    } else {
+      el.textContent = line.text || "";
+    }
+
+    // If a skip was triggered mid-sequence, dump the rest instantly.
+    if (!typing) {
+      for (let j = idx + 1; j < lines.length; j++) {
+        const rest = buildLineNode(lines[j]);
+        if (!lines[j].link) rest.textContent = lines[j].text || "";
+        output.appendChild(rest);
+      }
+      break;
+    }
+  }
+  typing = false;
+  scrollToBottom();
+}
+
+/* Instant (non-animated) print — used for tab-completion suggestions. */
+function printInstant(lines) {
+  for (const line of lines) {
+    const el = buildLineNode(line);
+    if (!line.link) el.textContent = line.text || "";
+    output.appendChild(el);
+  }
+  scrollToBottom();
+}
+
+function scrollToBottom() { output.scrollTop = output.scrollHeight; }
+
+/* Skip any in-progress typewriter animation. */
+function skipTyping() { typing = false; }
+
+/* ================================================================
+   COMMAND HANDLERS — each returns an array of line objects
+   ================================================================ */
+function cmdHelp() {
+  const names = Object.keys(COMMANDS).sort();
+  const width = Math.max(...names.map((n) => n.length)) + 2;
+  const lines = [{ cls: "muted", text: "Available commands:" }];
+  for (const n of names) {
+    lines.push({ cls: "out", text: "  " + n.padEnd(width) + COMMANDS[n].description });
+  }
+  return lines;
+}
+
+function cmdWhoami() {
+  return [
+    { cls: "ok", text: PROFILE.name },
+    { cls: "out", text: "Roles: " + PROFILE.roles },
+    { cls: "muted", text: "Location: " + PROFILE.location }
+  ];
+}
+
+function cmdAbout() {
+  return [
+    { cls: "ok", text: PROFILE.name + " — bio" },
+    { cls: "out", text: PROFILE.bio }
+  ];
+}
+
+function cmdLs(args) {
+  const target = args[0] || "";
+  if (target === "projects/" || target === "projects") {
+    return PROJECTS_FILES().map((f) => ({ cls: "file", text: f }));
+  }
+  return [
+    { cls: "file", text: "about.txt" },
+    { cls: "file", text: "skills.txt" },
+    { cls: "file", text: "contact.txt" },
+    { cls: "file", text: "experience.log" },
+    { cls: "dir",  text: "projects/" }
+  ];
+}
+
+function cmdCat(args) {
+  const path = args[0];
+  if (!path) return [{ cls: "err", text: "cat: missing file operand" }];
+
+  if (path === "about.txt") return cmdAbout();
+  if (path === "skills.txt") return cmdSkills();
+  if (path === "contact.txt") return cmdContact();
+  if (path === "experience.log") return cmdExperience();
+
+  if (path.startsWith("projects/")) {
+    const name = path.slice("projects/".length);
+    const proj = PROFILE.projects.find((p) => p.file === name);
+    if (proj) return projectLines(proj);
+    return [{ cls: "err", text: `cat: ${path}: No such file or directory` }];
+  }
+  return [{ cls: "err", text: `cat: ${path}: No such file or directory` }];
+}
+
+function cmdSkills() {
+  const lines = [{ cls: "ok", text: "Skills & Stack" }];
+  for (const s of PROFILE.skills) {
+    lines.push({ cls: "out", text: s.group.padEnd(16) + ": " + s.items });
+  }
+  return lines;
+}
+
+function cmdContact() {
+  const lines = [{ cls: "ok", text: "Contact" }];
+  lines.push({ link: true, text: "Email:   " + PROFILE.email, href: "mailto:" + PROFILE.email });
+  for (const l of PROFILE.links) {
+    lines.push({ link: true, text: l.label.padEnd(9) + ": " + l.url.replace(/^https?:\/\//, ""), href: l.url });
+  }
+  return lines;
+}
+
+function cmdExperience() {
+  const lines = [{ cls: "ok", text: "Experience" }];
+  for (const e of PROFILE.experience) {
+    lines.push({ cls: "out", text: `[${e.duration}]  ${e.role}` });
+    lines.push({ cls: "muted", text: "    " + e.impact });
+  }
+  return lines;
+}
+
+function cmdResume() {
+  if (PROFILE.resume) {
+    return [
+      { cls: "out", text: "Opening CV:" },
+      { link: true, text: PROFILE.resume, href: PROFILE.resume }
+    ];
+  }
+  return [{ cls: "muted", text: "Resume not available — reach out via 'contact'." }];
+}
+
+function cmdSudo() {
+  return [{ cls: "err",
+    text: "Nice try. Permission denied: guest is not in the sudoers file. This incident will be reported." }];
+}
+
+function cmdEcho(args) {
+  return [{ cls: "out", text: args.join(" ") }];
+}
+
+function projectLines(p) {
+  const lines = [{ cls: "ok", text: p.title }];
+  lines.push({ cls: "out", text: p.desc });
+  lines.push({ cls: "muted", text: "stack: " + p.stack });
+  if (p.metric) lines.push({ cls: "out", text: "▸ " + p.metric });
+  if (p.link) lines.push({ link: true, text: "repo: " + p.link.replace(/^https?:\/\//, ""), href: p.link });
+  return lines;
+}
+
+function PROJECTS_FILES() {
+  return PROFILE.projects.map((p) => p.file);
+}
+
+/* ================================================================
+   COMMANDS REGISTRY — `help` is generated from this same source
+   ================================================================ */
+const COMMANDS = {
+  help:    { description: "Show this help message",               run: () => cmdHelp() },
+  whoami:  { description: "Print your identity (name, role, loc)", run: () => cmdWhoami() },
+  about:   { description: "Print a short bio (alias: cat about.txt)", run: () => cmdAbout() },
+  ls:      { description: "List files and directories",          run: (a) => cmdLs(a) },
+  cat:     { description: "Print a file (e.g. cat projects/<name>.md)", run: (a) => cmdCat(a) },
+  contact: { description: "Show email and social links",         run: () => cmdContact() },
+  skills:  { description: "Alias for cat skills.txt",             run: () => cmdSkills() },
+  experience: { description: "Alias for cat experience.log",      run: () => cmdExperience() },
+  resume:  { description: "Open the downloadable CV",             run: () => cmdResume() },
+  clear:   { description: "Clear the terminal screen",           run: () => [] },
+  sudo:    { description: "Attempt a privileged op (denied)",     run: () => cmdSudo() },
+  echo:    { description: "Print text back to the screen",        run: (a) => cmdEcho(a) }
+};
+
+/* ================================================================
+   parseInput() — split raw input into command + args
+   ================================================================ */
+function parseInput(str) {
+  const parts = str.split(/\s+/).filter(Boolean);
+  return { cmd: parts[0], args: parts.slice(1) };
+}
+
+/* ================================================================
+   executeCommand() — orchestrates echo, lookup, output, history
+   ================================================================ */
+function executeCommand(raw) {
+  const trimmed = raw.trim();
+  echoCommand(raw);
+
+  if (trimmed !== "") {
+    history.push(trimmed);
+    if (history.length > 50) history.shift();
+  }
+  historyIndex = history.length;
+
+  if (trimmed === "") { afterCommand(); return; }
+  if (trimmed === "clear") { output.innerHTML = ""; afterCommand(); return; }
+
+  const { cmd, args } = parseInput(trimmed);
+  let lines;
+  if (COMMANDS[cmd]) {
+    lines = COMMANDS[cmd].run(args);
+  } else {
+    lines = [{ cls: "err", text: `command not found: ${cmd} — type 'help' for a list of commands` }];
+  }
+
+  const srText = buildSRText(cmd, args, lines);
+  printLines(lines).then(() => {
+    srAnnounce.textContent = srText;
+    afterCommand();
+  });
+}
+
+function echoCommand(raw) {
+  const line = document.createElement("div");
+  line.className = "line";
+  const p = document.createElement("span");
+  p.className = "prompt";
+  p.textContent = PROMPT;
+  const t = document.createElement("span");
+  t.style.color = "var(--input)";
+  t.textContent = raw;                 // safe: textContent
+  line.appendChild(p);
+  line.appendChild(document.createTextNode(" "));
+  line.appendChild(t);
+  output.appendChild(line);
+  scrollToBottom();
+}
+
+function buildSRText(cmd, args, lines) {
+  let t = `Ran command ${cmd}. `;
+  for (const l of lines) t += (l.link ? l.text : (l.text || "")) + " ";
+  return t;
+}
+
+function afterCommand() {
+  scrollToBottom();
+  focusInput();
+}
+
+/* ================================================================
+   handleHistoryNav() — Up/Down through past commands
+   ================================================================ */
+function handleHistoryNav(dir) {
+  if (history.length === 0) return;
+  historyIndex += dir;
+  if (historyIndex < 0) historyIndex = 0;
+  if (historyIndex >= history.length) {
+    historyIndex = history.length;
+    input.value = "";
+    mirror.textContent = "";
+    return;
+  }
+  input.value = history[historyIndex];
+  mirror.textContent = input.value;
+  requestAnimationFrame(() => input.setSelectionRange(input.value.length, input.value.length));
+}
+
+/* ================================================================
+   handleTabComplete() — command + file-path completion
+   ================================================================ */
+function handleTabComplete() {
+  const val = input.value;
+  const tokens = val.split(" ");
+
+  if (tokens.length === 1) {
+    const matches = Object.keys(COMMANDS).filter((c) => c.startsWith(val));
+    applyCompletion(matches, tokens, 0, val);
+    return;
+  }
+  if (tokens[0] === "cat") {
+    const partial = tokens[1] || "";
+    let pool;
+    if (partial.startsWith("projects/")) {
+      pool = PROFILE.projects.map((p) => "projects/" + p.file);
+    } else {
+      pool = ["about.txt", "skills.txt", "contact.txt", "experience.log", "projects/"];
+    }
+    const matches = pool.filter((p) => p.startsWith(partial));
+    applyCompletion(matches, tokens, 1, partial);
+  }
+}
+
+function applyCompletion(matches, tokens, idx, partial) {
+  if (matches.length === 1) {
+    tokens[idx] = matches[0];
+    input.value = tokens.join(" ");
+    mirror.textContent = input.value;
+  } else if (matches.length > 1) {
+    printInstant([{ cls: "muted", text: matches.join("    ") }]);
+    focusInput();
+  }
+}
+
+/* ================================================================
+   focusInput() — keep focus on the real input element
+   ================================================================ */
+function focusInput() {
+  if (!input.disabled) input.focus();
+}
+
+/* ================================================================
+   handleKeydown() — Enter / history / tab / skip
+   ================================================================ */
+function handleKeydown(e) {
+  if (typing) {
+    // While animating, Enter (or any key) completes the animation instantly.
+    if (e.key === "Enter") { e.preventDefault(); skipTyping(); }
+    return;
+  }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const v = input.value;
+    input.value = "";
+    mirror.textContent = "";
+    executeCommand(v);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault(); handleHistoryNav(-1);
+  } else if (e.key === "ArrowDown") {
+    e.preventDefault(); handleHistoryNav(1);
+  } else if (e.key === "Tab") {
+    e.preventDefault(); handleTabComplete();
+  }
+}
+
+/* ================================================================
+   bootSequence() — simulated boot/welcome before interactivity
+   ================================================================ */
+function centerText(text, width) {
+  const pad = Math.max(0, Math.floor((width - text.length) / 2));
+  return " ".repeat(pad) + text + " ".repeat(width - text.length - pad);
+}
+
+function bootSequence() {
+  const W = 56;
+  const banner = [
+    "╔" + "═".repeat(W) + "╗",
+    "║" + centerText("M A D A N   G   —   terminal portfolio", W) + "║",
+    "╚" + "═".repeat(W) + "╝"
+  ].map((t) => ({ cls: "ok", text: t, speed: 2 }));
+
+  const welcome = [
+    { cls: "muted", text: "Welcome to " + PROFILE.name + "’s terminal portfolio." },
+    { cls: "muted", text: "Type 'help' to list commands, or 'whoami' to begin." },
+    { cls: "out", text: "" }
+  ];
+
+  input.disabled = true;
+  printLines([...banner, ...welcome]).then(() => {
+    input.disabled = false;
+    focusInput();
+  });
+}
+
+/* ================================================================
+   toggleStandardView() — accessible non-terminal fallback
+   ================================================================ */
+function buildStandardView() {
+  const frag = document.createDocumentFragment();
+
+  const h1 = document.createElement("h1");
+  h1.textContent = PROFILE.name;
+  const role = document.createElement("p");
+  role.className = "role";
+  role.textContent = PROFILE.roles + " · " + PROFILE.location;
+  frag.appendChild(h1); frag.appendChild(role);
+
+  const bioH = document.createElement("h2"); bioH.textContent = "About";
+  const bioP = document.createElement("p"); bioP.textContent = PROFILE.bio;
+  frag.appendChild(bioH); frag.appendChild(bioP);
+
+  const skH = document.createElement("h2"); skH.textContent = "Skills";
+  const skUl = document.createElement("ul");
+  for (const s of PROFILE.skills) {
+    const li = document.createElement("li");
+    const g = document.createElement("span"); g.className = "tag"; g.textContent = s.group + ": ";
+    li.appendChild(g); li.appendChild(document.createTextNode(s.items));
+    skUl.appendChild(li);
+  }
+  frag.appendChild(skH); frag.appendChild(skUl);
+
+  const prH = document.createElement("h2"); prH.textContent = "Projects";
+  const prUl = document.createElement("ul");
+  for (const p of PROFILE.projects) {
+    const li = document.createElement("li");
+    const strong = document.createElement("strong"); strong.textContent = p.title;
+    li.appendChild(strong);
+    li.appendChild(document.createTextNode(" — " + p.desc + " "));
+    li.appendChild(document.createTextNode("[" + p.stack + "] "));
+    if (p.metric) { const m = document.createElement("em"); m.textContent = p.metric; li.appendChild(m); }
+    if (p.link) {
+      const a = document.createElement("a");
+      a.href = p.link; a.target = "_blank"; a.rel = "noopener noreferrer";
+      a.textContent = " (repo)"; li.appendChild(a);
+    }
+    prUl.appendChild(li);
+  }
+  frag.appendChild(prH); frag.appendChild(prUl);
+
+  const exH = document.createElement("h2"); exH.textContent = "Experience";
+  const exUl = document.createElement("ul");
+  for (const e of PROFILE.experience) {
+    const li = document.createElement("li");
+    const strong = document.createElement("strong"); strong.textContent = e.role + " (" + e.duration + ")";
+    li.appendChild(strong);
+    li.appendChild(document.createTextNode(" — " + e.impact));
+    exUl.appendChild(li);
+  }
+  frag.appendChild(exH); frag.appendChild(exUl);
+
+  const cH = document.createElement("h2"); cH.textContent = "Contact";
+  const cP = document.createElement("p");
+  const mail = document.createElement("a"); mail.href = "mailto:" + PROFILE.email; mail.textContent = PROFILE.email;
+  cP.appendChild(mail);
+  for (const l of PROFILE.links) {
+    cP.appendChild(document.createTextNode("  ·  "));
+    const a = document.createElement("a"); a.href = l.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+    a.textContent = l.label; cP.appendChild(a);
+  }
+  frag.appendChild(cH); frag.appendChild(cP);
+
+  const back = document.createElement("button");
+  back.className = "back-btn";
+  back.type = "button";
+  back.textContent = "[ back to terminal ]";
+  back.addEventListener("click", toggleStandardView);
+  frag.appendChild(back);
+
+  standardView.innerHTML = "";
+  standardView.appendChild(frag);
+}
+
+function toggleStandardView() {
+  const showingStandard = !standardView.hasAttribute("hidden");
+  if (showingStandard) {
+    standardView.setAttribute("hidden", "");
+    terminal.removeAttribute("hidden");
+    toggleViewBtn.textContent = "[ standard view ]";
+    focusInput();
+  } else {
+    buildStandardView();
+    standardView.removeAttribute("hidden");
+    terminal.setAttribute("hidden", "");
+    toggleViewBtn.textContent = "[ terminal view ]";
+  }
+}
+
+/* ================================================================
+   WIRING
+   ================================================================ */
+input.addEventListener("keydown", handleKeydown);
+input.addEventListener("input", () => { mirror.textContent = input.value; });
+
+// Click anywhere in the terminal focuses input (unless on a link),
+// and completes any in-progress typing animation.
+terminalBody.addEventListener("click", (e) => {
+  if (e.target.closest("a")) return;
+  if (typing) skipTyping();
+  focusInput();
+});
+
+toggleViewBtn.addEventListener("click", toggleStandardView);
+
+/* ================================================================
+   BOOT
+   ================================================================ */
+bootSequence();
+</script>
+</body>
+</html>
